@@ -6,6 +6,31 @@ The contents may be of interest to both developers interested in
 working on the Klipper software as well as users interested in better
 understanding the mechanics of their machines.
 
+## RCTP tilting bed
+
+Cartesian, CoreXY, and hybrid-CoreXY printers can use a three- or
+four-support tilting bed by adding an `[rctp]` section. The `[stepper_z]`
+rail must contain three or four motors, named consecutively from
+`stepper_z` through `stepper_z2` or `stepper_z3`. The coordinates are
+paired with those motors in that order. Axes `A` and `B` set bed tilt
+by calculating for the plane the bed should be at, and moving the 
+motors to match.
+
+```ini
+[rctp]
+pivot: 150, 150, 0
+z_positions: 25, 25, 275, 25, 150, 275
+max_angular_velocity: 1
+max_angular_accel: 10
+instantaneous_corner_velocity: 1
+max_tilt: 30
+```
+
+The solver applies an X rotation with matrix `R_x(A) R_y(B)`, then constrains
+the bed tilt using `max_tilt`. 
+
+Bed tramming is still supported, used to find individual motor offsets.
+
 ## Acceleration
 
 Klipper implements a constant acceleration scheme whenever the print

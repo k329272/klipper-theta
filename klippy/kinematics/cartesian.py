@@ -6,9 +6,11 @@
 import logging
 import stepper
 from . import idex_modes
+from . import rctp as rctp_module
 
 class CartKinematics:
     def __init__(self, toolhead, config):
+        self.toolhead = toolhead
         self.printer = config.get_printer()
         # Setup axis rails
         self.dual_carriage_axis = None
@@ -34,6 +36,18 @@ class CartKinematics:
                     [self.rails[3]], axes=[self.dual_carriage_axis],
                     safe_dist=[dc_config.getfloat(
                         'safe_distance', None, minval=0.)])
+        self.rctp = None
+        if config.has_section('rctp'):
+            self.rctp = rctp_module.RCTP(toolhead, config)
+            self.rctp.setup_rail(self.rails[0], ['x'] * len(
+                self.rails[0].get_steppers()))
+            self.rctp.setup_rail(self.rails[1], ['y'] * len(
+                self.rails[1].get_steppers()))
+            self.rctp.setup_z_rail(self.rails[2])
+            if len(self.rails) > 3:
+                axis = 'x' if self.dual_carriage_axis == 0 else 'y'
+                self.rctp.setup_rail(self.rails[3], [axis] * len(
+                    self.rails[3].get_steppers()))
         for s in self.get_steppers():
             s.set_trapq(toolhead.get_trapq())
         # Setup boundary checks
@@ -45,6 +59,10 @@ class CartKinematics:
         self.limits = [(1.0, -1.0)] * 3
     def get_steppers(self):
         return [s for rail in self.rails for s in rail.get_steppers()]
+    def get_z_steppers(self):
+        if self.rctp is not None:
+            return list(self.rctp.z_steppers)
+        return [s for s in self.get_steppers() if s.is_active_axis('z')]
     def calc_position(self, stepper_positions):
         rails = self.rails
         if self.dc_module:
@@ -52,7 +70,13 @@ class CartKinematics:
                     or self.rails[self.dual_carriage_axis]
             rails = (rails[:self.dual_carriage_axis] +
                      [dc_rail] + rails[self.dual_carriage_axis+1:])
-        return [stepper_positions[rail.get_name()] for rail in rails]
+        if self.rctp is None:
+            return [stepper_positions[rail.get_name()] for rail in rails]
+        return self.rctp.position_from_steppers(
+            stepper_positions[rails[0].get_name()],
+            stepper_positions[rails[1].get_name()],
+            self.rctp.z_positions_from_steppers(self.rails[2],
+                                                stepper_positions))[:3]
     def update_limits(self, i, range):
         l, h = self.limits[i]
         # Only update limits if this axis was already homed,
@@ -60,6 +84,8 @@ class CartKinematics:
         if l <= h:
             self.limits[i] = range
     def set_position(self, newpos, homing_axes):
+        if self.rctp is not None:
+            newpos = self.toolhead.get_position()
         for i, rail in enumerate(self.rails):
             rail.set_position(newpos)
         for axis_name in homing_axes:
@@ -104,6 +130,10 @@ class CartKinematics:
                     raise move.move_error("Must home axis first")
                 raise move.move_error()
     def check_move(self, move):
+        if self.rctp is not None:
+            self.rctp.check_move(move, self.limits[0], self.limits[1],
+                                 self.rails[2], self.max_z_velocity,
+                                 self.max_z_accel)
         limits = self.limits
         xpos, ypos = move.end_pos[:2]
         if (xpos < limits[0][0] or xpos > limits[0][1]

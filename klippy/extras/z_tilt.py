@@ -17,7 +17,12 @@ class ZAdjustHelper:
                                             self.handle_connect)
     def handle_connect(self):
         kin = self.printer.lookup_object('toolhead').get_kinematics()
-        z_steppers = [s for s in kin.get_steppers() if s.is_active_axis('z')]
+        get_z_steppers = getattr(kin, 'get_z_steppers', None)
+        if get_z_steppers is None:
+            z_steppers = [s for s in kin.get_steppers()
+                          if s.is_active_axis('z')]
+        else:
+            z_steppers = get_z_steppers()
         if len(z_steppers) != self.z_count:
             raise self.printer.config_error(
                 "%s z_positions needs exactly %d items" % (
@@ -37,7 +42,15 @@ class ZAdjustHelper:
         gcode.respond_info(msg)
         # Disable Z stepper movements
         toolhead.flush_step_generation()
-        for s in self.z_steppers:
+        kin = toolhead.get_kinematics()
+        rctp = getattr(kin, 'rctp', None)
+        initial_stepper_offsets = None
+        if rctp is not None:
+            initial_stepper_offsets = [s.get_mcu_position_offset()
+                                       for s in self.z_steppers]
+        adjusted_steppers = (kin.get_steppers() if rctp is not None
+                             else self.z_steppers)
+        for s in adjusted_steppers:
             s.set_trapq(None)
         # Move each z stepper (sorted from lowest to highest) until they match
         positions = [(-a, s) for a, s in zip(adjustments, self.z_steppers)]
@@ -56,7 +69,7 @@ class ZAdjustHelper:
             except:
                 logging.exception("ZAdjustHelper adjust_steppers")
                 toolhead.flush_step_generation()
-                for s in self.z_steppers:
+                for s in adjusted_steppers:
                     s.set_trapq(toolhead.get_trapq())
                 raise
         # Z should now be level - do final cleanup
@@ -64,7 +77,21 @@ class ZAdjustHelper:
         toolhead.flush_step_generation()
         last_stepper.set_trapq(toolhead.get_trapq())
         curpos[2] += first_stepper_offset
+        if rctp is not None:
+            for s in adjusted_steppers:
+                s.set_trapq(toolhead.get_trapq())
         toolhead.set_position(curpos)
+        if rctp is not None:
+            tramming_offsets = [s.get_mcu_position_offset() - old_offset
+                                for s, old_offset in zip(
+                                    self.z_steppers,
+                                    initial_stepper_offsets)]
+        else:
+            tramming_offsets = None
+        # Notify kinematics that use per-motor corrections derived from
+        # physical Z tramming (for example, a three/four-support RCTP bed).
+        self.printer.send_event("z_tilt:steppers_adjusted", adjustments,
+                                self.z_steppers, tramming_offsets)
 
 class ZAdjustStatus:
     def __init__(self, printer):

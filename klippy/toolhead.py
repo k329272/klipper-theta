@@ -28,17 +28,24 @@ class Move:
                                 zip(self.start_pos, self.end_pos)]
         self.move_d = move_d = math.sqrt(sum([d*d for d in axes_d[:3]]))
         if move_d < .000000001:
-            # Extrude only move
-            self.end_pos = ((start_pos[0], start_pos[1], start_pos[2])
-                            + self.end_pos[3:])
-            axes_d[0] = axes_d[1] = axes_d[2] = 0.
-            self.move_d = move_d = max([abs(ad) for ad in axes_d[3:]])
-            inv_move_d = 0.
-            if move_d:
+            # An RCTP orientation-only move still changes the Z support
+            # positions, so keep A/B/C-only moves on the kinematic trapq.
+            rotary_d = max([abs(ad) for ad in axes_d[4:7]] + [0.])
+            if rotary_d:
+                self.move_d = move_d = rotary_d
                 inv_move_d = 1. / move_d
-            self.accel = 99999999.9
-            velocity = speed
-            self.is_kinematic_move = False
+            else:
+                # Extrude only move
+                self.end_pos = ((start_pos[0], start_pos[1], start_pos[2])
+                                + self.end_pos[3:])
+                axes_d[0] = axes_d[1] = axes_d[2] = 0.
+                self.move_d = move_d = max([abs(ad) for ad in axes_d[3:]])
+                inv_move_d = 0.
+                if move_d:
+                    inv_move_d = 1. / move_d
+                self.accel = 99999999.9
+                velocity = speed
+                self.is_kinematic_move = False
         else:
             inv_move_d = 1. / move_d
         self.axes_r = [d * inv_move_d for d in axes_d]

@@ -81,9 +81,9 @@ defs_itersolve = """
         , double step_dist);
     struct trapq *itersolve_get_trapq(struct stepper_kinematics *sk);
     double itersolve_calc_position_from_coord(struct stepper_kinematics *sk
-        , double x, double y, double z);
+        , double x, double y, double z, double a, double b, double c);
     void itersolve_set_position(struct stepper_kinematics *sk
-        , double x, double y, double z);
+        , double x, double y, double z, double a, double b, double c);
     double itersolve_get_commanded_pos(struct stepper_kinematics *sk);
     double itersolve_get_gen_steps_pre_active(struct stepper_kinematics *sk);
     double itersolve_get_gen_steps_post_active(struct stepper_kinematics *sk);
@@ -119,6 +119,11 @@ defs_trapq = """
 
 defs_kin_cartesian = """
     struct stepper_kinematics *cartesian_stepper_alloc(char axis);
+    struct stepper_kinematics *rctp_stepper_alloc(char type
+        , double pivot_x, double pivot_y, double pivot_z
+        , double support_x, double support_y);
+    void rctp_stepper_set_offset(struct stepper_kinematics *sk
+        , double offset);
 """
 defs_kin_generic_cartesian = """
     struct stepper_kinematics *generic_cartesian_stepper_alloc(double a_x

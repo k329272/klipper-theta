@@ -5,9 +5,11 @@
 # This file may be distributed under the terms of the GNU GPLv3 license.
 import logging, math
 import stepper
+from . import rctp as rctp_module
 
 class CoreXYKinematics:
     def __init__(self, toolhead, config):
+        self.toolhead = toolhead
         # Setup axis rails
         self.rails = [stepper.LookupMultiRail(config.getsection('stepper_' + n))
                       for n in 'xyz']
@@ -18,6 +20,14 @@ class CoreXYKinematics:
         self.rails[0].setup_itersolve('corexy_stepper_alloc', b'+')
         self.rails[1].setup_itersolve('corexy_stepper_alloc', b'-')
         self.rails[2].setup_itersolve('cartesian_stepper_alloc', b'z')
+        self.rctp = None
+        if config.has_section('rctp'):
+            self.rctp = rctp_module.RCTP(toolhead, config)
+            self.rctp.setup_rail(self.rails[0], ['+'] * len(
+                self.rails[0].get_steppers()))
+            self.rctp.setup_rail(self.rails[1], ['-'] * len(
+                self.rails[1].get_steppers()))
+            self.rctp.setup_z_rail(self.rails[2])
         for s in self.get_steppers():
             s.set_trapq(toolhead.get_trapq())
         # Setup boundary checks
@@ -32,10 +42,21 @@ class CoreXYKinematics:
         self.axes_max = toolhead.Coord([r[1] for r in ranges])
     def get_steppers(self):
         return [s for rail in self.rails for s in rail.get_steppers()]
+    def get_z_steppers(self):
+        if self.rctp is not None:
+            return list(self.rctp.z_steppers)
+        return [s for s in self.get_steppers() if s.is_active_axis('z')]
     def calc_position(self, stepper_positions):
         pos = [stepper_positions[rail.get_name()] for rail in self.rails]
+        if self.rctp is not None:
+            return self.rctp.position_from_steppers(
+                0.5 * (pos[0] + pos[1]), 0.5 * (pos[0] - pos[1]),
+                self.rctp.z_positions_from_steppers(self.rails[2],
+                                                    stepper_positions))[:3]
         return [0.5 * (pos[0] + pos[1]), 0.5 * (pos[0] - pos[1]), pos[2]]
     def set_position(self, newpos, homing_axes):
+        if self.rctp is not None:
+            newpos = self.toolhead.get_position()
         for i, rail in enumerate(self.rails):
             rail.set_position(newpos)
             if "xyz"[i] in homing_axes:
@@ -70,6 +91,10 @@ class CoreXYKinematics:
                     raise move.move_error("Must home axis first")
                 raise move.move_error()
     def check_move(self, move):
+        if self.rctp is not None:
+            self.rctp.check_move(move, self.limits[0], self.limits[1],
+                                 self.rails[2], self.max_z_velocity,
+                                 self.max_z_accel)
         limits = self.limits
         xpos, ypos = move.end_pos[:2]
         if (xpos < limits[0][0] or xpos > limits[0][1]

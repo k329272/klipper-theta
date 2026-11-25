@@ -133,6 +133,8 @@ class MCU_stepper:
         return self._oid
     def get_step_dist(self):
         return self._step_dist
+    def get_mcu_position_offset(self):
+        return self._mcu_position_offset
     def get_rotation_distance(self):
         return self._rotation_dist, self._steps_per_rotation
     def set_rotation_distance(self, rotation_dist):
@@ -153,13 +155,17 @@ class MCU_stepper:
         self._mcu.get_printer().send_event("stepper:set_dir_inverted", self)
     def calc_position_from_coord(self, coord):
         ffi_main, ffi_lib = chelper.get_ffi()
+        coord = list(coord) + [0.] * max(0, 7 - len(coord))
         return ffi_lib.itersolve_calc_position_from_coord(
-            self._stepper_kinematics, coord[0], coord[1], coord[2])
+            self._stepper_kinematics, coord[0], coord[1], coord[2],
+            coord[4], coord[5], coord[6])
     def set_position(self, coord):
         mcu_pos = self.get_mcu_position()
         sk = self._stepper_kinematics
         ffi_main, ffi_lib = chelper.get_ffi()
-        ffi_lib.itersolve_set_position(sk, coord[0], coord[1], coord[2])
+        coord = list(coord) + [0.] * max(0, 7 - len(coord))
+        ffi_lib.itersolve_set_position(sk, coord[0], coord[1], coord[2],
+                                       coord[4], coord[5], coord[6])
         self._set_mcu_position(mcu_pos)
     def get_commanded_position(self):
         ffi_main, ffi_lib = chelper.get_ffi()

@@ -119,7 +119,10 @@ class DumpTrapQ:
         move_time = max(0., min(move.move_t, rel_time))
         dist = (move.start_v + .5 * move.accel * move_time) * move_time;
         pos = (move.start_x + move.x_r * dist, move.start_y + move.y_r * dist,
-               move.start_z + move.z_r * dist)
+               move.start_z + move.z_r * dist,
+               move.start_a + move.a_r * dist,
+               move.start_b + move.b_r * dist,
+               move.start_c + move.c_r * dist)
         velocity = 0.
         if rel_time >= 0. and rel_time <= move.move_t:
             velocity = move.start_v + move.accel * move_time
@@ -246,6 +249,8 @@ class PrinterMotionReport:
         pos, velocity = self.dtrapqs['toolhead'].get_trapq_position(print_time)
         if pos is not None:
             live_pos[:3] = pos[:3]
+            if len(live_pos) >= 6:
+                live_pos[4:6] = pos[3:5]
             xyzvelocity = velocity
         # Calculate requested position of extra axes
         for ea_index, ea in enumerate(extra_axes):

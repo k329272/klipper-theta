@@ -6,6 +6,7 @@
 import logging
 import stepper
 from . import idex_modes
+from . import rctp as rctp_module
 
 # The hybrid-corexy kinematic is also known as Markforged kinematics
 class HybridCoreXYKinematics:
@@ -20,6 +21,14 @@ class HybridCoreXYKinematics:
         self.rails[0].setup_itersolve('corexy_stepper_alloc', b'-')
         self.rails[1].setup_itersolve('cartesian_stepper_alloc', b'y')
         self.rails[2].setup_itersolve('cartesian_stepper_alloc', b'z')
+        self.rctp = None
+        if config.has_section('rctp'):
+            self.rctp = rctp_module.RCTP(toolhead, config)
+            self.rctp.setup_rail(self.rails[0], ['-'] * len(
+                self.rails[0].get_steppers()))
+            self.rctp.setup_rail(self.rails[1], ['y'] * len(
+                self.rails[1].get_steppers()))
+            self.rctp.setup_z_rail(self.rails[2])
         ranges = [r.get_range() for r in self.rails]
         self.axes_min = toolhead.Coord([r[0] for r in ranges])
         self.axes_max = toolhead.Coord([r[1] for r in ranges])
@@ -37,6 +46,9 @@ class HybridCoreXYKinematics:
                     self.printer, [self.rails[0]], [self.rails[3]], axes=[0],
                     safe_dist=[dc_config.getfloat(
                         'safe_distance', None, minval=0.)])
+            if self.rctp is not None:
+                self.rctp.setup_rail(self.rails[3], ['+'] * len(
+                    self.rails[3].get_steppers()))
         for s in self.get_steppers():
             s.set_trapq(toolhead.get_trapq())
         # Setup boundary checks
@@ -48,8 +60,21 @@ class HybridCoreXYKinematics:
         self.limits = [(1.0, -1.0)] * 3
     def get_steppers(self):
         return [s for rail in self.rails for s in rail.get_steppers()]
+    def get_z_steppers(self):
+        if self.rctp is not None:
+            return list(self.rctp.z_steppers)
+        return [s for s in self.get_steppers() if s.is_active_axis('z')]
     def calc_position(self, stepper_positions):
         pos = [stepper_positions[rail.get_name()] for rail in self.rails]
+        if self.rctp is not None:
+            if (self.dc_module is not None and 'PRIMARY' == \
+                    self.dc_module.get_status()['carriage_1']):
+                x, y = pos[3] - pos[1], pos[1]
+            else:
+                x, y = pos[0] + pos[1], pos[1]
+            return self.rctp.position_from_steppers(
+                x, y, self.rctp.z_positions_from_steppers(
+                    self.rails[2], stepper_positions))[:3]
         if (self.dc_module is not None and 'PRIMARY' == \
                     self.dc_module.get_status()['carriage_1']):
             return [pos[3] - pos[1], pos[1], pos[2]]
@@ -62,6 +87,8 @@ class HybridCoreXYKinematics:
         if l <= h:
             self.limits[i] = range
     def set_position(self, newpos, homing_axes):
+        if self.rctp is not None:
+            newpos = self.printer.lookup_object('toolhead').get_position()
         for i, rail in enumerate(self.rails):
             rail.set_position(newpos)
         for axis_name in homing_axes:
@@ -104,6 +131,10 @@ class HybridCoreXYKinematics:
                     raise move.move_error("Must home axis first")
                 raise move.move_error()
     def check_move(self, move):
+        if self.rctp is not None:
+            self.rctp.check_move(move, self.limits[0], self.limits[1],
+                                 self.rails[2], self.max_z_velocity,
+                                 self.max_z_accel)
         limits = self.limits
         xpos, ypos = move.end_pos[:2]
         if (xpos < limits[0][0] or xpos > limits[0][1]

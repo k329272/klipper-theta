@@ -201,9 +201,14 @@ class LookupZSteppers:
                                             self._handle_mcu_identify)
     def _handle_mcu_identify(self):
         kin = self.printer.lookup_object('toolhead').get_kinematics()
-        for stepper in kin.get_steppers():
-            if stepper.is_active_axis('z'):
-                self.add_stepper_cb(stepper)
+        get_z_steppers = getattr(kin, 'get_z_steppers', None)
+        if get_z_steppers is not None:
+            z_steppers = get_z_steppers()
+        else:
+            z_steppers = [stepper for stepper in kin.get_steppers()
+                          if stepper.is_active_axis('z')]
+        for stepper in z_steppers:
+            self.add_stepper_cb(stepper)
 
 # Support homing via probe using the probe:z_virtual_endstop pseudo-pin
 class HomingViaProbeHelper:
